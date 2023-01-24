@@ -75,12 +75,12 @@ type struct Worker {
 	quitChan chan bool
 	// whatever else your worker needs
 }
-func (w *Worker) ProcessJob(ctx context.Context, job interface{}) {
+func (w Worker) ProcessJob(ctx context.Context, job interface{}) {
 	if str, ok := job.(string); ok {
       // do stuff with the string
     }
 }
-func (w *Worker) QuitChan() chan bool {
+func (w Worker) QuitChan() chan bool {
 	return w.quitChan
 }
 ```
@@ -89,7 +89,7 @@ b. Define the factory
 type WorkerFactory struct {
 // whatever else your factory needs
 }
-func (f *WorkerFactory) CreateWorker(ctx context.Context, quit chan bool) (IQueueWorker, error) {
+func (f WorkerFactory) CreateWorker(ctx context.Context, quit chan bool) (IQueueWorker, error) {
 	return Worker {
 	  quitChan: quit	
     }
@@ -109,34 +109,33 @@ q.EnqueueJob("string to process")
 
 Create a redis-backed job q to operate on a series of strings:
 
-a. Define the worker and factory (same as before)
+a. Define the worker and factory (slightly different from above)
 ```go
-type struct Worker {
+type RedisWorker struct {
 	quitChan chan bool
-	// whatever else your worker needs
 }
-func (w *Worker) ProcessJob(ctx context.Context, job interface{}) {
-	if str, ok := job.(string); ok {
-      // do stuff with the string
-    }
+func (w RedisWorker) ProcessJob(ctx context.Context, job interface{}) {
+	if xmsg, ok := job.(redis.XMessage); ok {
+		fmt.Printf("process string: %+v\n", xmsg.Values)
+	}
 }
-func (w *Worker) QuitChan() chan bool {
+func (w RedisWorker) QuitChan() chan bool {
 	return w.quitChan
 }
-type WorkerFactory struct {
-// whatever else your factory needs
+type RedisWorkerFactory struct {
+	// whatever else your factory needs
 }
-func (f *WorkerFactory) CreateWorker(ctx context.Context, quit chan bool) (IQueueWorker, error) {
-  return Worker {
-    quitChan: quit
-  }
+func (f RedisWorkerFactory) CreateWorker(ctx context.Context, quit chan bool) (jobq.IQueueWorker, error) {
+	return RedisWorker{
+		quitChan: quit,
+	}, nil
 }
 ```
 b. Create and start the queue:
 ```go
 rdb, _:= redis.NewClient(...)
 quitChan := make(chan bool)
-q, _ := CreateRedisStreamJobQueue(rdb, "our-string-queue", 5, 10, WorkerFactory{})
+q, _ := CreateRedisStreamJobQueue(rdb, "our-string-queue", 2, 3, WorkerFactory{})
 // Work will block until the queue quits (or fails), so use a go thread
 // write to quitChan to tell the queue to stop
 go q.Work(ctx, quitChan)
